@@ -1,6 +1,6 @@
 use rustls::ServerConfig;
 use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
 };
 use tokio::{
@@ -37,13 +37,14 @@ impl TrojanServer {
         loop {
             match tcp_listener.accept().await {
                 Ok((stream, addr)) => {
+                    let addr = Arc::new(addr);
                     if let Ok(tls_stream) = tls_acceptor
                         .accept(stream)
                         .await
                         .inspect_err(|error| error!("{error}"))
                     {
                         tokio::spawn(async {
-                            if let Err(err) = Self::handle(tls_stream).await {
+                            if let Err(err) = Self::handle(tls_stream, addr).await {
                                 error!("{err}")
                             };
                         });
@@ -56,7 +57,10 @@ impl TrojanServer {
         }
     }
 
-    async fn handle<IO: AsyncRead + AsyncWrite + Unpin>(mut tls_stream: IO) -> anyhow::Result<()> {
+    async fn handle<IO: AsyncRead + AsyncWrite + Unpin>(
+        mut tls_stream: IO,
+        addr: Arc<SocketAddr>,
+    ) -> anyhow::Result<()> {
         let mut passwd: [u8; 56] = [0_u8; 56];
         tls_stream.read_exact(&mut passwd).await?;
 
@@ -94,7 +98,7 @@ impl TrojanServer {
 
         let mut target_tcp_stream = TcpStream::connect(format!("{}:{}", address, port)).await?;
 
-        info!("{}:{} connected", address, port);
+        info!("{} connected to {}:{}", addr, address, port);
 
         copy_bidirectional(&mut target_tcp_stream, &mut tls_stream).await?;
 

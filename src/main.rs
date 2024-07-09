@@ -7,14 +7,13 @@ use tokio_rustls::rustls::{
     pki_types::{CertificateDer, PrivateKeyDer},
     ServerConfig,
 };
-use tracing::level_filters::LevelFilter;
 
 mod server;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_max_level(LevelFilter::DEBUG)
+        // .with_max_level(LevelFilter::DEBUG)
         .init();
 
     let (certs, priv_key) = load_certs("pem/cert.pem", "pem/key.pem")?;
