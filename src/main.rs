@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = init_cmd();
-    let (certs, priv_key) = load_certs("pem/cert.pem", "pem/key.pem")?;
+    let (certs, priv_key) = load_certs(args.cert.as_str(), args.cert_key.as_str())?;
 
     let server_cfg = ServerConfig::builder()
         .with_no_client_auth()
