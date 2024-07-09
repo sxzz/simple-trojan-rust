@@ -1,3 +1,4 @@
+use cli::init_cmd;
 use server::TrojanServer;
 use std::{
     fs::File,
@@ -8,6 +9,7 @@ use tokio_rustls::rustls::{
     ServerConfig,
 };
 
+mod cli;
 mod server;
 
 #[tokio::main]
@@ -16,12 +18,13 @@ async fn main() -> anyhow::Result<()> {
         // .with_max_level(LevelFilter::DEBUG)
         .init();
 
+    let args = init_cmd();
     let (certs, priv_key) = load_certs("pem/cert.pem", "pem/key.pem")?;
 
     let server_cfg = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, priv_key)?;
-    let trojan_server = TrojanServer::new("0.0.0.0:443", server_cfg);
+    let trojan_server = TrojanServer::new(args.server_address.as_str(), server_cfg);
     trojan_server.run().await?;
 
     Ok(())
