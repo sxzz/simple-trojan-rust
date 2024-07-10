@@ -29,10 +29,11 @@ enum TrojanError {
 pub struct TrojanServer {
     address: String,
     tls_acceptor: Arc<TlsAcceptor>,
+    password: Arc<[u8; 56]>,
 }
 
 impl TrojanServer {
-    pub fn new(address: &str, cert: &str, cert_key: &str) -> anyhow::Result<Self> {
+    pub fn new(address: &str, cert: &str, cert_key: &str) -> anyhow::Result<Arc<Self>> {
         let (certs, priv_key) = Self::load_certs(cert, cert_key)?;
 
         let server_config = Arc::new(
@@ -42,10 +43,11 @@ impl TrojanServer {
         );
         let tls_acceptor = Arc::new(TlsAcceptor::from(server_config));
 
-        Ok(Self {
+        Ok(Arc::new(Self {
             address: address.to_string(),
             tls_acceptor,
-        })
+            password: Arc::new([0_u8; 56]), // TODO
+        }))
     }
 
     fn load_certs(
@@ -64,10 +66,10 @@ impl TrojanServer {
         Ok((certs, priv_key))
     }
 
-    pub async fn run(self) -> anyhow::Result<()> {
+    pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
         let span = span!(Level::INFO, "TCP", "{}", self.address).entered();
         info!("Starting TCP server...",);
-        let tcp_listener = TcpListener::bind(self.address)
+        let tcp_listener = TcpListener::bind(&self.address)
             .await
             .expect("failed to bind");
         info!("Started TCP server.");
@@ -80,7 +82,7 @@ impl TrojanServer {
                 .map_err(|error| TrojanError::TransportError(error))
             {
                 Ok(tcp_result) => {
-                    Self::accept_tls(self.tls_acceptor.clone(), tcp_result).await;
+                    self.clone().accept_tls(tcp_result).await;
                 }
                 Err(error) => {
                     error!("{error}");
@@ -89,10 +91,10 @@ impl TrojanServer {
         }
     }
 
-    async fn accept_tls(tls_acceptor: Arc<TlsAcceptor>, (stream, addr): (TcpStream, SocketAddr)) {
-        let addr = Arc::new(addr);
+    async fn accept_tls(self: Arc<Self>, (stream, addr): (TcpStream, SocketAddr)) {
+        let tls_acceptor = self.tls_acceptor.clone();
+
         tokio::spawn(async move {
-            let addr = addr.clone();
             let tls_stream = match tls_acceptor.accept(stream).await {
                 Ok(tls_stream) => tls_stream,
                 Err(err) => {
@@ -101,18 +103,21 @@ impl TrojanServer {
                 }
             };
 
-            if let Err(err) = Self::handle_tls(tls_stream, addr).await {
+            if let Err(err) = self.handle_tls(tls_stream, addr).await {
                 error!("{:?}", TrojanError::ProtocolError(err));
             };
         });
     }
 
     async fn handle_tls<IO: AsyncRead + AsyncWrite + Unpin>(
+        self: Arc<Self>,
         mut tls_stream: IO,
-        addr: Arc<SocketAddr>,
+        addr: SocketAddr,
     ) -> anyhow::Result<()> {
         let mut passwd: [u8; 56] = [0_u8; 56];
         tls_stream.read_exact(&mut passwd).await?;
+
+        let password = self.password.clone();
 
         Self::read_crlf(&mut tls_stream).await;
         let cmd = tls_stream.read_u8().await?;
