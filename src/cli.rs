@@ -20,6 +20,9 @@ pub struct Args {
         default_value_t = String::from("pem/key.pem")
     )]
     pub cert_key: String,
+
+    #[arg(short = 'p', long)]
+    pub password: String,
 }
 
 pub fn init_cmd() -> Args {

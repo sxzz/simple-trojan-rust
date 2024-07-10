@@ -1,5 +1,6 @@
 use anyhow::bail;
 use rustls::ServerConfig;
+use sha2::{Digest, Sha224};
 use std::{
     fs::File,
     io::{self, BufReader},
@@ -33,7 +34,12 @@ pub struct TrojanServer {
 }
 
 impl TrojanServer {
-    pub fn new(address: &str, cert: &str, cert_key: &str) -> anyhow::Result<Arc<Self>> {
+    pub fn new(
+        address: &str,
+        cert: &str,
+        cert_key: &str,
+        password: &str,
+    ) -> anyhow::Result<Arc<Self>> {
         let (certs, priv_key) = Self::load_certs(cert, cert_key)?;
 
         let server_config = Arc::new(
@@ -43,10 +49,15 @@ impl TrojanServer {
         );
         let tls_acceptor = Arc::new(TlsAcceptor::from(server_config));
 
+        let mut hasher = Sha224::new();
+        hasher.update(password);
+        let mut password = [0u8; 56];
+        let _ = hex::encode_to_slice(hasher.finalize(), &mut password);
+
         Ok(Arc::new(Self {
             address: address.to_string(),
+            password: Arc::new(password),
             tls_acceptor,
-            password: Arc::new([0_u8; 56]), // TODO
         }))
     }
 
@@ -95,7 +106,7 @@ impl TrojanServer {
         let tls_acceptor = self.tls_acceptor.clone();
 
         tokio::spawn(async move {
-            let tls_stream = match tls_acceptor.accept(stream).await {
+            let mut tls_stream = match tls_acceptor.accept(stream).await {
                 Ok(tls_stream) => tls_stream,
                 Err(err) => {
                     error!("{:?}", TrojanError::TransportError(err));
@@ -103,7 +114,7 @@ impl TrojanServer {
                 }
             };
 
-            if let Err(err) = self.handle_tls(tls_stream, addr).await {
+            if let Err(err) = self.handle_tls(&mut tls_stream, addr).await {
                 error!("{:?}", TrojanError::ProtocolError(err));
             };
         });
@@ -114,10 +125,13 @@ impl TrojanServer {
         mut tls_stream: IO,
         addr: SocketAddr,
     ) -> anyhow::Result<()> {
-        let mut passwd: [u8; 56] = [0_u8; 56];
-        tls_stream.read_exact(&mut passwd).await?;
+        let mut password: [u8; 56] = [0_u8; 56];
+        tls_stream.read_exact(&mut password).await?;
+        let target_password = self.password.as_ref();
 
-        let password = self.password.clone();
+        if &password != target_password {
+            bail!("password incorrect")
+        }
 
         Self::read_crlf(&mut tls_stream).await;
         let cmd = tls_stream.read_u8().await?;

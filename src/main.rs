@@ -15,6 +15,7 @@ async fn main() -> anyhow::Result<()> {
         args.server_address.as_str(),
         args.cert.as_str(),
         args.cert_key.as_str(),
+        args.password.as_str(),
     )?;
     trojan_server.run().await?;
 
