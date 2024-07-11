@@ -80,9 +80,7 @@ impl TrojanServer {
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
         let span = span!(Level::INFO, "TCP", "{}", self.address).entered();
         info!("Starting TCP server...",);
-        let tcp_listener = TcpListener::bind(&self.address)
-            .await
-            .expect("failed to bind");
+        let tcp_listener = TcpListener::bind(&self.address).await?;
         info!("Started TCP server.");
         span.exit();
 
@@ -133,7 +131,7 @@ impl TrojanServer {
             bail!("password incorrect")
         }
 
-        Self::read_crlf(&mut tls_stream).await;
+        Self::read_crlf(&mut tls_stream).await?;
         let cmd = tls_stream.read_u8().await?;
         if cmd == 0x3 {
             warn!("unsupported UDP");
@@ -166,7 +164,7 @@ impl TrojanServer {
         };
 
         let port = tls_stream.read_u16().await?;
-        Self::read_crlf(&mut tls_stream).await;
+        Self::read_crlf(&mut tls_stream).await?;
 
         let mut target_tcp_stream = TcpStream::connect(format!("{}:{}", address, port)).await?;
 
@@ -177,7 +175,11 @@ impl TrojanServer {
         Ok(())
     }
 
-    async fn read_crlf<IO: AsyncRead + Unpin>(mut tls_stream: IO) {
-        tls_stream.read_u16().await.unwrap();
+    async fn read_crlf<IO: AsyncRead + Unpin>(mut tls_stream: IO) -> anyhow::Result<()> {
+        let crlf = tls_stream.read_u16().await?;
+        if crlf != 0x0D0A {
+            bail!("invalid CRLF")
+        }
+        Ok(())
     }
 }
