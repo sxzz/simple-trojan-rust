@@ -85,16 +85,12 @@ impl TrojanServer {
         span.exit();
 
         loop {
-            match tcp_listener
-                .accept()
-                .await
-                .map_err(|error| TrojanError::TransportError(error))
-            {
+            match tcp_listener.accept().await {
                 Ok(tcp_result) => {
                     self.clone().accept_tls(tcp_result).await;
                 }
                 Err(error) => {
-                    error!("{error}");
+                    error!("{}", TrojanError::TransportError(error));
                 }
             };
         }
